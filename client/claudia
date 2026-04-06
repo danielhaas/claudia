@@ -163,7 +163,7 @@ discover_hosts() {
     local found=false
 
     # Check config for HOSTS=("host1" "host2" ...)
-    if [[ ${#HOSTS[@]:-0} -gt 0 ]]; then
+    if [[ ${#HOSTS[@]} -gt 0 ]]; then
         printf '%s\n' "${HOSTS[@]}"
         return
     fi
