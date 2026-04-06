@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cc - Claude Code remote control from mobile (Termux)
+# claudia - Claude Code remote control
 # Connect to desktop Claude sessions over Tailscale + SSH
 
 set -euo pipefail
@@ -239,7 +239,7 @@ show_session_menu() {
 main() {
     ensure_config_dir
 
-    # Quick connect: cc <host> [session]
+    # Quick connect: claudia <host> [session]
     if [[ $# -ge 1 && "$1" != "--help" && "$1" != "-h" ]]; then
         local host="$1"
         local user
@@ -263,12 +263,12 @@ main() {
 # Handle help
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     cat <<'EOF'
-cc - Claude Code Remote Control
+claudia - Claude Code Remote Control
 
 Usage:
-  cc                  Interactive mode: pick host, then session
-  cc <host>           Connect to host, show sessions
-  cc <host> <session> Directly attach to a session
+  claudia                  Interactive mode: pick host, then session
+  claudia <host>           Connect to host, show sessions
+  claudia <host> <session> Directly attach to a session
 
 Config: ~/.config/claudia/mobile.conf
 EOF

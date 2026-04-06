@@ -11,10 +11,10 @@ echo "=== Claudia Mobile Install ==="
 # Create directories
 mkdir -p "$INSTALL_DIR" "$CONFIG_DIR"
 
-# Install cc command
-cp "$SCRIPT_DIR/cc" "$INSTALL_DIR/cc"
-chmod +x "$INSTALL_DIR/cc"
-echo "[ok] Installed cc to $INSTALL_DIR/"
+# Install claudia command
+cp "$SCRIPT_DIR/claudia" "$INSTALL_DIR/claudia"
+chmod +x "$INSTALL_DIR/claudia"
+echo "[ok] Installed claudia to $INSTALL_DIR/"
 
 # Check PATH
 if ! echo "$PATH" | tr ':' '\n' | grep -q "${HOME}/.local/bin"; then
@@ -51,4 +51,4 @@ if [[ ! -f "${HOME}/.ssh/id_ed25519" && ! -f "${HOME}/.ssh/id_rsa" ]]; then
 fi
 
 echo ""
-echo "Done! Run 'cc' to connect to your Claude sessions."
+echo "Done! Run 'claudia' to connect to your Claude sessions."
