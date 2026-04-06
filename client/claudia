@@ -54,6 +54,110 @@ save_config_var() {
     fi
 }
 
+# Add a host to the config
+add_host() {
+    ensure_config_dir
+    local host="$1"
+    # Append to HOSTS array in config
+    if [[ -f "$CONFIG_FILE" ]] && grep -q '^HOSTS=' "$CONFIG_FILE"; then
+        # Add to existing array - replace closing paren
+        sed -i "s|^HOSTS=(\(.*\))|HOSTS=(\1 \"${host}\")|" "$CONFIG_FILE"
+    else
+        echo "HOSTS=(\"${host}\")" >> "$CONFIG_FILE"
+    fi
+    # Reload
+    HOSTS+=("$host")
+}
+
+# Remove a host from config
+remove_host() {
+    local host="$1"
+    if [[ -f "$CONFIG_FILE" ]]; then
+        sed -i "s|\"${host}\"||g; s|  | |g" "$CONFIG_FILE"
+    fi
+    # Reload HOSTS without the removed one
+    local -a new_hosts=()
+    for h in "${HOSTS[@]}"; do
+        [[ "$h" != "$host" ]] && new_hosts+=("$h")
+    done
+    HOSTS=("${new_hosts[@]}")
+}
+
+# Interactive first-run setup
+first_run_setup() {
+    echo "=== Claudia Setup ==="
+    echo ""
+    echo "No hosts configured yet. Let's add one."
+    echo ""
+    printf "SSH username: "
+    read -r user
+    [[ -z "$user" ]] && die "No username provided"
+    save_config_var "DEFAULT_USER" "$user"
+    DEFAULT_USER="$user"
+
+    printf "Hostname (tailscale name): "
+    read -r host
+    [[ -z "$host" ]] && die "No hostname provided"
+    add_host "$host"
+
+    echo ""
+    printf "Add another host? [y/N] "
+    read -r answer
+    while [[ "${answer:-n}" =~ ^[Yy]$ ]]; do
+        printf "Hostname: "
+        read -r host
+        [[ -n "$host" ]] && add_host "$host"
+        printf "Add another? [y/N] "
+        read -r answer
+    done
+
+    echo ""
+    echo "Setup complete! Saved to $CONFIG_FILE"
+    echo ""
+}
+
+# Manage hosts interactively
+cmd_hosts() {
+    clear_screen
+    echo "=== Manage Hosts ==="
+    echo ""
+    if [[ ${#HOSTS[@]} -gt 0 ]]; then
+        echo "Current hosts:"
+        local i=1
+        for h in "${HOSTS[@]}"; do
+            echo "  $i) $h"
+            (( i++ ))
+        done
+    else
+        echo "No hosts configured."
+    fi
+    echo ""
+    echo "  a) Add host"
+    echo "  d) Remove host"
+    echo "  b) Back"
+    echo ""
+    printf "Choice: "
+    read -r choice
+    case "$choice" in
+        a)
+            printf "Hostname: "
+            read -r host
+            [[ -n "$host" ]] && add_host "$host" && echo "Added $host"
+            sleep 1
+            ;;
+        d)
+            printf "Host number to remove: "
+            read -r num
+            if [[ "$num" =~ ^[0-9]+$ ]] && (( num >= 1 && num <= ${#HOSTS[@]} )); then
+                local h="${HOSTS[$((num - 1))]}"
+                remove_host "$h"
+                echo "Removed $h"
+                sleep 1
+            fi
+            ;;
+    esac
+}
+
 # Discover hosts (config file first, then tailscale fallback)
 discover_hosts() {
     local found=false
@@ -72,7 +176,13 @@ discover_hosts() {
         return
     fi
 
-    die "No hosts configured. Add HOSTS=(\"host1\" \"host2\") to $CONFIG_FILE"
+    # No tailscale CLI and no hosts - run first-time setup
+    first_run_setup
+    if [[ ${#HOSTS[@]} -gt 0 ]]; then
+        printf '%s\n' "${HOSTS[@]}"
+        return
+    fi
+    die "No hosts configured."
 }
 
 # Check if host has claudia-manager installed
@@ -127,6 +237,7 @@ show_host_menu() {
         (( i++ ))
     done
     echo ""
+    echo "  h) Manage hosts"
     echo "  q) Quit"
     echo ""
     printf "Select host: "
@@ -135,6 +246,7 @@ show_host_menu() {
     read -r choice
 
     [[ "$choice" == "q" ]] && exit 0
+    [[ "$choice" == "h" ]] && cmd_hosts && show_host_menu && return
 
     if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#hosts[@]} )); then
         SELECTED_HOST="${hosts[$((choice - 1))]}"
