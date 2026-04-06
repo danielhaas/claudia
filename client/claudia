@@ -10,6 +10,7 @@ KNOWN_HOSTS_FILE="${CONFIG_DIR}/known_hosts"
 
 # Defaults
 DEFAULT_USER=""
+HOSTS=()
 SSH_OPTS=(-o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$KNOWN_HOSTS_FILE")
 
 # Load config if exists
@@ -53,16 +54,25 @@ save_config_var() {
     fi
 }
 
-# Discover Tailscale hosts
+# Discover hosts (config file first, then tailscale fallback)
 discover_hosts() {
-    if ! command -v tailscale &>/dev/null; then
-        die "tailscale CLI not found. Install it or configure hosts manually in $CONFIG_FILE"
+    local found=false
+
+    # Check config for HOSTS=("host1" "host2" ...)
+    if [[ ${#HOSTS[@]:-0} -gt 0 ]]; then
+        printf '%s\n' "${HOSTS[@]}"
+        return
     fi
 
-    # Get online peers (skip this device, header line, and tags)
-    tailscale status --peers=true 2>/dev/null | \
-        awk '$5 != "-" && NR > 1 && $2 != "" { print $2 }' | \
-        sort -u
+    # Fall back to tailscale CLI
+    if command -v tailscale &>/dev/null; then
+        tailscale status --peers=true 2>/dev/null | \
+            awk '$5 != "-" && NR > 1 && $2 != "" { print $2 }' | \
+            sort -u
+        return
+    fi
+
+    die "No hosts configured. Add HOSTS=(\"host1\" \"host2\") to $CONFIG_FILE"
 }
 
 # Check if host has claudia-manager installed
@@ -271,6 +281,8 @@ Usage:
   claudia <host> <session> Directly attach to a session
 
 Config: ~/.config/claudia/mobile.conf
+  HOSTS=("myhost1" "myhost2")   Static host list (skips tailscale)
+  DEFAULT_USER="username"        SSH username for all hosts
 EOF
     exit 0
 fi
