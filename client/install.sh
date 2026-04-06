@@ -3,7 +3,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="${HOME}/bin"
+# Detect Termux vs regular Linux
+if [[ -n "${PREFIX:-}" && -d "${PREFIX}/bin" ]]; then
+    INSTALL_DIR="${PREFIX}/bin"
+else
+    INSTALL_DIR="${HOME}/.local/bin"
+fi
 CONFIG_DIR="${HOME}/.config/claudia"
 
 echo "=== Claudia Mobile Install ==="
@@ -17,11 +22,11 @@ chmod +x "$INSTALL_DIR/claudia"
 echo "[ok] Installed claudia to $INSTALL_DIR/"
 
 # Check PATH
-if ! echo "$PATH" | tr ':' '\n' | grep -q "${HOME}/.local/bin"; then
+if ! echo "$PATH" | tr ':' '\n' | grep -qF "$INSTALL_DIR"; then
     echo ""
-    echo "[!!] ${HOME}/.local/bin is not in your PATH."
+    echo "[!!] $INSTALL_DIR is not in your PATH."
     echo "     Add this to your shell config:"
-    echo "     export PATH=\"\$HOME/.local/bin:\$PATH\""
+    echo "     export PATH=\"$INSTALL_DIR:\$PATH\""
 fi
 
 # Check for ssh
