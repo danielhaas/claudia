@@ -190,8 +190,12 @@ show_session_menu() {
 
         local -a session_names
         local i=1
-        while IFS='|' read -r name age path preview; do
-            printf "  %d) %-12s  %4s ago  %s\n" "$i" "$name" "$age" "$preview"
+        while IFS='|' read -r name age path claude_name preview; do
+            if [[ -n "$claude_name" ]]; then
+                printf "  %d) %-12s  %4s ago  \"%s\"  %s\n" "$i" "$name" "$age" "$claude_name" "$preview"
+            else
+                printf "  %d) %-12s  %4s ago  %s\n" "$i" "$name" "$age" "$preview"
+            fi
             session_names+=("$name")
             (( i++ ))
         done <<< "$raw_sessions"

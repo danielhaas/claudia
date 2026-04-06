@@ -6,6 +6,7 @@ set -euo pipefail
 
 TMUX_CONF="${HOME}/.config/claudia/tmux.conf"
 SESSION_PREFIX="claude"
+CLAUDE_SESSIONS_DIR="${HOME}/.claude/sessions"
 
 # Get next available session number
 next_session_number() {
@@ -17,6 +18,30 @@ next_session_number() {
         fi
     done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
     echo $(( max + 1 ))
+}
+
+# Find Claude session name for a tmux session by tracing the pane PID
+get_claude_session_name() {
+    local tmux_session="$1"
+    local pane_pid
+    pane_pid=$(tmux display-message -t "$tmux_session" -p '#{pane_pid}' 2>/dev/null) || return
+
+    # Walk the process tree from the pane shell to find a claude process
+    # Check the pane PID and all descendants
+    local pids
+    pids=$(pstree -p "$pane_pid" 2>/dev/null | grep -oP '\(\K[0-9]+(?=\))' || true)
+
+    for pid in $pids; do
+        if [[ -f "${CLAUDE_SESSIONS_DIR}/${pid}.json" ]]; then
+            local name
+            name=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('name',''))" \
+                "${CLAUDE_SESSIONS_DIR}/${pid}.json" 2>/dev/null) || true
+            if [[ -n "$name" ]]; then
+                echo "$name"
+                return
+            fi
+        fi
+    done
 }
 
 # List all claude tmux sessions with metadata
@@ -42,12 +67,16 @@ cmd_list() {
                 human_age="$(( age / 86400 ))d"
             fi
 
+            # Get Claude session name (from /rename)
+            local claude_name
+            claude_name=$(get_claude_session_name "$name" 2>/dev/null) || true
+
             # Try to get last few lines of pane content for preview
             local preview
             preview=$(tmux capture-pane -t "$name" -p 2>/dev/null | grep -v '^$' | tail -1 | cut -c1-60)
             [[ -z "$preview" ]] && preview="(no output)"
 
-            echo "${name}|${human_age}|${path}|${preview}"
+            echo "${name}|${human_age}|${path}|${claude_name:-}|${preview}"
         fi
     done
 }
