@@ -32,7 +32,10 @@ fi
 ALIAS_LINE='alias claude="claudia-manager wrap"'
 ALIAS_COMMENT="# claudia: auto-wrap claude in tmux sessions"
 
-setup_shell_alias() {
+EXIT_FUNC='# claudia: detach instead of exit in claudia tmux sessions
+exit() { if [[ -n "${CLAUDIA_SESSION:-}" ]]; then tmux detach; else builtin exit "$@"; fi; }'
+
+setup_shell_rc() {
     local rc_file="$1"
     if [[ -f "$rc_file" ]]; then
         if grep -q "claudia-manager wrap" "$rc_file" 2>/dev/null; then
@@ -43,19 +46,26 @@ setup_shell_alias() {
             echo "$ALIAS_LINE" >> "$rc_file"
             echo "[ok] Added claude alias to $rc_file"
         fi
+        if grep -q "CLAUDIA_SESSION" "$rc_file" 2>/dev/null; then
+            echo "[ok] Exit override already in $rc_file"
+        else
+            echo "$EXIT_FUNC" >> "$rc_file"
+            echo "[ok] Added exit-to-detach to $rc_file"
+        fi
     fi
 }
 
 # Detect shell and add alias
 if [[ -f "${HOME}/.bashrc" ]]; then
-    setup_shell_alias "${HOME}/.bashrc"
+    setup_shell_rc "${HOME}/.bashrc"
 fi
 if [[ -f "${HOME}/.zshrc" ]]; then
-    setup_shell_alias "${HOME}/.zshrc"
+    setup_shell_rc "${HOME}/.zshrc"
 fi
 
 echo ""
 echo "Done! Restart your shell or run: source ~/.bashrc"
 echo ""
 echo "Now when you run 'claude', it will auto-launch inside a tmux session."
-echo "These sessions are accessible from your phone via the 'cc' command."
+echo "These sessions are accessible from your phone via the 'claudia' command."
+echo "Type 'exit' in a claudia session to detach (session keeps running)."
