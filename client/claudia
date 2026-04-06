@@ -220,6 +220,20 @@ clear_screen() {
 }
 
 show_host_menu() {
+    # Run setup before clearing screen so interactive prompts work
+    # (can't do interactive reads inside process substitution)
+    if [[ ${#HOSTS[@]} -eq 0 ]]; then
+        local ts_ok=false
+        if command -v tailscale &>/dev/null; then
+            local ts_out
+            ts_out=$(tailscale status --peers=true 2>/dev/null | awk '$5 != "-" && NR > 1 && $2 != "" { print $2 }')
+            [[ -n "$ts_out" ]] && ts_ok=true
+        fi
+        if [[ "$ts_ok" == false ]]; then
+            first_run_setup
+        fi
+    fi
+
     clear_screen
     echo "=== Claude Remote ==="
     echo ""
@@ -228,7 +242,7 @@ show_host_menu() {
     mapfile -t hosts < <(discover_hosts)
 
     if [[ ${#hosts[@]} -eq 0 ]]; then
-        die "No Tailscale hosts found online"
+        die "No hosts found"
     fi
 
     echo "Available hosts:"
