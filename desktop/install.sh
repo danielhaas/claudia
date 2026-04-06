@@ -32,8 +32,23 @@ fi
 ALIAS_LINE='alias claude="claudia-manager wrap"'
 ALIAS_COMMENT="# claudia: auto-wrap claude in tmux sessions"
 
-EXIT_FUNC='# claudia: in claudia tmux sessions, detach if others are attached, else exit normally
-exit() { if [[ -n "${CLAUDIA_SESSION:-}" ]] && [[ $(tmux list-clients -t "$(tmux display-message -p "#S")" 2>/dev/null | wc -l) -gt 1 ]]; then tmux detach; else builtin exit "$@"; fi; }'
+read -r -d '' EXIT_FUNC << 'EXITEOF'
+# claudia: in claudia tmux sessions, detach if others are attached, else exit normally
+exit() {
+    if [[ -z "${CLAUDIA_SESSION:-}" ]]; then
+        builtin exit "$@"
+        return
+    fi
+    local session clients
+    session=$(tmux display-message -p "#{session_name}" 2>/dev/null)
+    clients=$(tmux list-clients -t "$session" 2>/dev/null | wc -l)
+    if [[ "$clients" -gt 1 ]]; then
+        tmux detach
+    else
+        builtin exit "$@"
+    fi
+}
+EXITEOF
 
 setup_shell_rc() {
     local rc_file="$1"
