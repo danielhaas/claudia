@@ -158,25 +158,27 @@ cmd_hosts() {
     esac
 }
 
-# Discover hosts (config file first, then tailscale fallback)
+# Discover hosts (config file first, then tailscale fallback, then interactive setup)
 discover_hosts() {
-    local found=false
-
-    # Check config for HOSTS=("host1" "host2" ...)
+    # 1. Config file hosts
     if [[ ${#HOSTS[@]} -gt 0 ]]; then
         printf '%s\n' "${HOSTS[@]}"
         return
     fi
 
-    # Fall back to tailscale CLI
+    # 2. Tailscale CLI (only if available and returns results)
     if command -v tailscale &>/dev/null; then
-        tailscale status --peers=true 2>/dev/null | \
+        local ts_hosts
+        ts_hosts=$(tailscale status --peers=true 2>/dev/null | \
             awk '$5 != "-" && NR > 1 && $2 != "" { print $2 }' | \
-            sort -u
-        return
+            sort -u)
+        if [[ -n "$ts_hosts" ]]; then
+            echo "$ts_hosts"
+            return
+        fi
     fi
 
-    # No tailscale CLI and no hosts - run first-time setup
+    # 3. Nothing found - run interactive setup
     first_run_setup
     if [[ ${#HOSTS[@]} -gt 0 ]]; then
         printf '%s\n' "${HOSTS[@]}"
