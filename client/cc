@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+# cc - Claude Code remote control from mobile (Termux)
+# Connect to desktop Claude sessions over Tailscale + SSH
+
+set -euo pipefail
+
+CONFIG_DIR="${HOME}/.config/claudia"
+CONFIG_FILE="${CONFIG_DIR}/mobile.conf"
+KNOWN_HOSTS_FILE="${CONFIG_DIR}/known_hosts"
+
+# Defaults
+DEFAULT_USER=""
+SSH_OPTS=(-o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$KNOWN_HOSTS_FILE")
+
+# Load config if exists
+if [[ -f "$CONFIG_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE"
+fi
+
+# --- Helper functions ---
+
+die() { echo "error: $*" >&2; exit 1; }
+
+ensure_config_dir() {
+    mkdir -p "$CONFIG_DIR"
+}
+
+# Get SSH user for a host (from config or ask)
+get_user() {
+    local host="$1"
+    local var="USER_${host//-/_}"  # replace dashes with underscores for var name
+    local user="${!var:-$DEFAULT_USER}"
+
+    if [[ -z "$user" ]]; then
+        printf "SSH username for %s: " "$host"
+        read -r user
+        [[ -z "$user" ]] && die "No username provided"
+        save_config_var "$var" "$user"
+        save_config_var "DEFAULT_USER" "$user"
+        DEFAULT_USER="$user"
+    fi
+    echo "$user"
+}
+
+save_config_var() {
+    ensure_config_dir
+    local key="$1" val="$2"
+    if [[ -f "$CONFIG_FILE" ]] && grep -q "^${key}=" "$CONFIG_FILE" 2>/dev/null; then
+        sed -i "s|^${key}=.*|${key}=\"${val}\"|" "$CONFIG_FILE"
+    else
+        echo "${key}=\"${val}\"" >> "$CONFIG_FILE"
+    fi
+}
+
+# Discover Tailscale hosts
+discover_hosts() {
+    if ! command -v tailscale &>/dev/null; then
+        die "tailscale CLI not found. Install it or configure hosts manually in $CONFIG_FILE"
+    fi
+
+    # Get online peers (skip this device, header line, and tags)
+    tailscale status --peers=true 2>/dev/null | \
+        awk '$5 != "-" && NR > 1 && $2 != "" { print $2 }' | \
+        sort -u
+}
+
+# Check if host has claudia-manager installed
+check_host() {
+    local user="$1" host="$2"
+    ssh "${SSH_OPTS[@]}" "${user}@${host}" 'command -v claudia-manager' &>/dev/null
+}
+
+# List sessions on a host
+list_sessions() {
+    local user="$1" host="$2"
+    ssh "${SSH_OPTS[@]}" "${user}@${host}" 'claudia-manager list' 2>/dev/null
+}
+
+# Attach to a session on a host
+attach_session() {
+    local user="$1" host="$2" session="$3"
+    exec ssh "${SSH_OPTS[@]}" -t "${user}@${host}" "claudia-manager attach ${session}"
+}
+
+# Create new session on a host
+new_session() {
+    local user="$1" host="$2"
+    local session_name
+    session_name=$(ssh "${SSH_OPTS[@]}" "${user}@${host}" 'claudia-manager new')
+    echo "$session_name"
+}
+
+# --- UI ---
+
+clear_screen() {
+    printf '\033[2J\033[H'
+}
+
+show_host_menu() {
+    clear_screen
+    echo "=== Claude Remote ==="
+    echo ""
+
+    local -a hosts
+    mapfile -t hosts < <(discover_hosts)
+
+    if [[ ${#hosts[@]} -eq 0 ]]; then
+        die "No Tailscale hosts found online"
+    fi
+
+    echo "Available hosts:"
+    echo ""
+    local i=1
+    for host in "${hosts[@]}"; do
+        echo "  $i) $host"
+        (( i++ ))
+    done
+    echo ""
+    echo "  q) Quit"
+    echo ""
+    printf "Select host: "
+
+    local choice
+    read -r choice
+
+    [[ "$choice" == "q" ]] && exit 0
+
+    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#hosts[@]} )); then
+        SELECTED_HOST="${hosts[$((choice - 1))]}"
+    else
+        echo "Invalid choice"
+        sleep 1
+        show_host_menu
+    fi
+}
+
+show_session_menu() {
+    local host="$1"
+    local user
+    user=$(get_user "$host")
+
+    clear_screen
+    echo "=== $host ==="
+    echo ""
+
+    # Check connectivity + claudia-manager
+    printf "Connecting..."
+    if ! check_host "$user" "$host"; then
+        echo ""
+        echo ""
+        echo "claudia-manager not found on $host."
+        echo "Install it first: run install.sh on the desktop."
+        echo ""
+        printf "Press enter to go back..."
+        read -r
+        return 1
+    fi
+    echo " ok"
+    echo ""
+
+    local raw_sessions
+    raw_sessions=$(list_sessions "$user" "$host")
+
+    if [[ "$raw_sessions" == "NO_SESSIONS" ]]; then
+        echo "No active Claude sessions."
+        echo ""
+        echo "  n) Start new session"
+        echo "  b) Back"
+        echo ""
+        printf "Choice: "
+        local choice
+        read -r choice
+        case "$choice" in
+            n)
+                printf "Starting new session..."
+                local name
+                name=$(new_session "$user" "$host")
+                echo " $name"
+                sleep 0.5
+                attach_session "$user" "$host" "$name"
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    else
+        echo "Active sessions:"
+        echo ""
+
+        local -a session_names
+        local i=1
+        while IFS='|' read -r name age path preview; do
+            printf "  %d) %-12s  %4s ago  %s\n" "$i" "$name" "$age" "$preview"
+            session_names+=("$name")
+            (( i++ ))
+        done <<< "$raw_sessions"
+
+        echo ""
+        echo "  n) Start new session"
+        echo "  b) Back"
+        echo ""
+        printf "Choice: "
+
+        local choice
+        read -r choice
+
+        case "$choice" in
+            n)
+                printf "Starting new session..."
+                local name
+                name=$(new_session "$user" "$host")
+                echo " $name"
+                sleep 0.5
+                attach_session "$user" "$host" "$name"
+                ;;
+            b)
+                return 1
+                ;;
+            *)
+                if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#session_names[@]} )); then
+                    attach_session "$user" "$host" "${session_names[$((choice - 1))]}"
+                else
+                    echo "Invalid choice"
+                    sleep 1
+                    show_session_menu "$host"
+                fi
+                ;;
+        esac
+    fi
+}
+
+# --- Main ---
+
+main() {
+    ensure_config_dir
+
+    # Quick connect: cc <host> [session]
+    if [[ $# -ge 1 && "$1" != "--help" && "$1" != "-h" ]]; then
+        local host="$1"
+        local user
+        user=$(get_user "$host")
+        if [[ $# -ge 2 ]]; then
+            attach_session "$user" "$host" "$2"
+        else
+            show_session_menu "$host"
+            return
+        fi
+    fi
+
+    if [[ $# -eq 0 ]]; then
+        while true; do
+            show_host_menu
+            show_session_menu "$SELECTED_HOST" || continue
+        done
+    fi
+}
+
+# Handle help
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    cat <<'EOF'
+cc - Claude Code Remote Control
+
+Usage:
+  cc                  Interactive mode: pick host, then session
+  cc <host>           Connect to host, show sessions
+  cc <host> <session> Directly attach to a session
+
+Config: ~/.config/claudia/mobile.conf
+EOF
+    exit 0
+fi
+
+main "$@"
